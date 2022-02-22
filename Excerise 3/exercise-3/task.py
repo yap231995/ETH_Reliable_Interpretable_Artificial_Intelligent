@@ -60,6 +60,40 @@ def show(original, adv, model_to_prob):
     for i in range(10):
         print("Class {}:\t{:.2f}\t{:.2f}".format(i, float(p0[:, i]), float(p1[:, i])))
 
+#SOLUTION GIVEN
+# def fgsm_(model, x, target, eps, targeted=True, clip_min=None, clip_max=None):
+#     """Internal process for all FGSM and PGD attacks."""
+#     # create a copy of the input, remove all previous associations to the compute graph...
+#     input_ = x.clone().detach_()
+#     # ... and make sure we are differentiating toward that variable
+#     input_.requires_grad_()
+#
+#     # run the model and obtain the loss
+#     logits = model(input_)
+#     target = torch.LongTensor([target])
+#     model.zero_grad()
+#     loss = nn.CrossEntropyLoss()(logits, target)
+#     loss.backward()
+#
+#     # perfrom either targeted or untargeted attack
+#     if targeted:
+#         out = input_ - eps * input_.grad.sign()
+#     else:
+#         out = input_ + eps * input_.grad.sign()
+#
+#     # if desired clip the ouput back to the image domain
+#     if (clip_min is not None) or (clip_max is not None):
+#         out.clamp_(min=clip_min, max=clip_max)
+#     return out
+#
+#
+# def fgsm_targeted(model, x, target, eps, **kwargs):
+#     return fgsm_(model, x, target, eps, targeted=True, **kwargs)
+#
+#
+# def fgsm_untargeted(model, x, label, eps, **kwargs):
+#     return fgsm_(model, x, label, eps, targeted=False, **kwargs)
+
 
 def fgsm_targeted(model, x, target, eps):
     input_ = x.clone().detach_() #create copy. detach does is to stop all previous computation into the gradient graph
@@ -83,26 +117,90 @@ def fgsm_untargeted(model, x, label, eps):
     output = input_ + eps * torch.sign(input_.grad)
     return output
 
-def pgd_targeted(model, x, target, k, eps, eps_step):
-    # TODO: implement
+
+
+
+
+def pgd_targeted(model, x, target, k, eps, eps_step, clip_min, clip_max):
+    x_min = x - eps
+    x_max = x + eps
+    # Randomize the starting point x.
+    x = (x_max - x_min)*torch.rand(x.shape)+ x_min
+    if (clip_min is not None) or (clip_max is not None):
+        x.clamp_(min=clip_min, max=clip_max)
+    for i in range(k):
+        x = fgsm_targeted(model, x, target, eps_step)
+        # Projection Step (note is not just clip)
+        x = torch.max(x_min, x)
+        x = torch.min(x_max, x)
+    # if desired clip the ouput back to the image domain
+    if (clip_min is not None) or (clip_max is not None):
+        x.clamp_(min=clip_min, max=clip_max)
     return x
 
-def pgd_untargeted(model, x, label, k, eps, eps_step, clip_min, clip_max):
-    # TODO: implement
+def pgd_untargeted(model, x, target, k, eps, eps_step, clip_min, clip_max):
+    x_min = x - eps
+    x_max = x + eps
+
+    # Randomize the starting point x.
+    x = (x_max - x_min)*torch.rand(x.shape)+ x_min
+    if (clip_min is not None) or (clip_max is not None):
+        x.clamp_(min=clip_min, max=clip_max)
+
+    for i in range(k):
+        # FGSM step
+        x = fgsm_untargeted(model, x, target, eps_step)
+        # Projection Step (note is not just clip)
+        x = torch.max(x_min, x)
+        x = torch.min(x_max, x)
+    # if desired clip the ouput back to the image domain
+    if (clip_min is not None) or (clip_max is not None):
+        x.clamp_(min=clip_min, max=clip_max)
     return x
 
+
+
+#SOLUTION GIVEN
+# def pgd_(model, x, target, k, eps, eps_step, targeted=True, clip_min=None, clip_max=None):
+#     x_min = x - eps
+#     x_max = x + eps
+#
+#     # Randomize the starting point x.
+#     x = x + eps * (2 * torch.rand_like(x) - 1)
+#     if (clip_min is not None) or (clip_max is not None):
+#         x.clamp_(min=clip_min, max=clip_max)
+#
+#     for i in range(k):
+#         # FGSM step
+#         # We don't clamp here (arguments clip_min=None, clip_max=None)
+#         # as we want to apply the attack as defined
+#         x = fgsm_(model, x, target, eps_step, targeted)
+#         # Projection Step
+#         x = torch.max(x_min, x)
+#         x = torch.min(x_max, x)
+#     # if desired clip the ouput back to the image domain
+#     if (clip_min is not None) or (clip_max is not None):
+#         x.clamp_(min=clip_min, max=clip_max)
+#     return x
+
+
+# def pgd_targeted(model, x, target, k, eps, eps_step, clip_min=None, clip_max=None, **kwargs):
+#     return pgd_(model, x, target, k, eps, eps_step, targeted=True, **kwargs)
+
+# def pgd_untargeted(model, x, label, k, eps, eps_step, clip_min=None, clip_max=None, **kwargs):
+#     return pgd_(model, x, label, k, eps, eps_step, targeted=False, **kwargs)
 
 
 # try out our attacks
 original = torch.unsqueeze(test_dataset[0][0], dim=0)
 
-# adv_fgsm_targeted = fgsm_targeted(model, original, 7, 20)
+adv_fgsm_targeted = fgsm_targeted(model, original, 5, 0.05)
 
 label = torch.argmax(model(original))
 print(int(label))
 adv_fgsm_untargeted = fgsm_untargeted(model, original, int(label), 10)
-# adv_pgd_targeted = pgd_targeted(model, original, 7, 10, 0.08, 0.05)
-# adv_pdg_untargeted = pgd_untargeted(model, original, 7, 10, 0.08, 0.05, clip_min=0, clip_max=1.0)
+adv_pgd_targeted = pgd_targeted(model, original, 5, 10, 0.08, 0.05, clip_min=0, clip_max=1.0)
+adv_pdg_untargeted = pgd_untargeted(model, original, int(label), 20, 0.2, 0.1, clip_min=0, clip_max=1.0)
 
-show(original, adv_fgsm_untargeted, model_to_prob)
+show(original, adv_pdg_untargeted, model_to_prob)
 plt.show()
